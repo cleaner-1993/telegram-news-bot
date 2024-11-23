@@ -17,6 +17,9 @@ RSS_FEED_URL = 'https://rss.cbc.ca/lineup/canada.xml'
 # Gemini API endpoint
 URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={API_KEY}"
 
+# File to store previously posted article links
+POSTED_ARTICLES_FILE = "posted_articles.json"
+
 def fetch_rss_feed():
     """Fetch the RSS feed from CBC."""
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -58,7 +61,7 @@ def parse_rss_feed(feed_content):
 def extract_text_from_description(description_html):
     """Extract text content from the HTML description."""
     description_text = re.sub(r'<img[^>]+>', '', description_html)
-    description_text = re.sub(r'<[^>]+>', '', description_text)
+    description_text = re.sub(r'<[^>]+>', '', description_html)
     description_text = description_text.strip()
     description_text = html.unescape(description_text)
     return description_text
@@ -68,16 +71,25 @@ def extract_image_from_description(description_html):
     match = re.search(r'<img[^>]+src=["\'](.*?)["\']', description_html)
     return match.group(1) if match else None
 
+def load_posted_articles():
+    """Load the list of previously posted articles from the file."""
+    if os.path.exists(POSTED_ARTICLES_FILE):
+        with open(POSTED_ARTICLES_FILE, 'r') as file:
+            return json.load(file)
+    return []
+
+def save_posted_articles(posted_articles):
+    """Save the list of previously posted articles to the file."""
+    with open(POSTED_ARTICLES_FILE, 'w') as file:
+        json.dump(posted_articles, file)
+
 def generate_translation(content):
     """Send content to Gemini API for translation to Farsi."""
     headers = {"Content-Type": "application/json"}
-    
-    # Simplified prompt for translation
     prompt = f"""
     Translate the following text to Farsi. Only provide the translation in Farsi without any English content.
     "{content}"
     """
-    
     data = {
         "contents": [
             {
@@ -87,7 +99,6 @@ def generate_translation(content):
             }
         ]
     }
-
     try:
         response = requests.post(URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
@@ -107,7 +118,6 @@ def get_response_content(response):
 def send_message(text, image_url=None):
     """Send the translated content to the Telegram channel."""
     text = text.strip()
-
     if image_url:
         if len(text) > 1024:
             text = text[:1020] + '...'
@@ -127,7 +137,6 @@ def send_message(text, image_url=None):
             'text': text,
             'parse_mode': 'HTML'
         }
-    
     try:
         response = requests.post(url, data=payload)
         response.raise_for_status()
@@ -136,18 +145,23 @@ def send_message(text, image_url=None):
 
 def post_news_to_channel():
     """Fetch, translate, and post news articles to the Telegram channel."""
+    posted_articles = load_posted_articles()  # Load previously posted articles
     feed_content = fetch_rss_feed()
     if feed_content:
         articles = parse_rss_feed(feed_content)
         if articles:
             for article in articles:
+                # Skip articles already posted
+                if article['link'] in posted_articles:
+                    print(f"Skipping already posted article: {article['title']}")
+                    continue
+                
                 title = article['title']
                 description = article['description']
                 link = article['link']
                 published = article['published']
                 image_url = article['image_url']
                 
-                # Translate the title and description separately
                 translated_title = generate_translation(title)
                 translated_description = generate_translation(description)
                 
@@ -155,7 +169,6 @@ def post_news_to_channel():
                     print(f"Skipping article '{title}' due to translation error.")
                     continue
 
-                # Construct the message with translated title and description
                 message = (
                     f"<b>{html.escape(translated_title)}</b>\n\n"
                     f"{html.escape(translated_description)}\n\n"
@@ -165,7 +178,10 @@ def post_news_to_channel():
                 
                 print(f"Posting article: {translated_title}")
                 send_message(message, image_url)
+                posted_articles.append(article['link'])  # Mark as posted
                 time.sleep(2)
+
+            save_posted_articles(posted_articles)  # Save updated list
 
 if __name__ == "__main__":
     post_news_to_channel()
