@@ -1,10 +1,9 @@
 import requests
 import feedparser
-import html
-import re
-import time
-import json
 import os
+import html
+import time
+from bs4 import BeautifulSoup
 
 # Fetch the secrets from environment variables
 API_KEY = os.getenv('API_KEY')
@@ -20,187 +19,147 @@ URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash
 # File to store published articles
 PUBLISHED_FILE = "published_articles.txt"
 
-
 def fetch_rss_feed():
-    """Fetch the RSS feed from CBC."""
+    """Fetch the RSS feed and extract links."""
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         response = requests.get(RSS_FEED_URL, headers=headers, timeout=10)
         response.raise_for_status()
-        return response.text
+        feed = feedparser.parse(response.text)
+        return [entry.link for entry in feed.entries[:5]]  # Return the latest 5 links
     except requests.exceptions.RequestException as e:
         print(f"Error fetching the RSS feed: {e}")
-        return None
-
-
-def parse_rss_feed(feed_content):
-    """Parse the RSS feed and extract articles."""
-    feed = feedparser.parse(feed_content)
-    if not feed.entries:
-        print("No articles found in the RSS feed.")
         return []
 
-    articles = []
-    for entry in feed.entries[:5]:  # Fetch only the first 5 articles
-        title = entry.title
-        description_html = entry.description
-        link = entry.link
-        published = entry.published if 'published' in entry else 'N/A'
-
-        description = extract_text_from_description(description_html)
-        image_url = extract_image_from_description(description_html)
-
-        articles.append({
-            'title': title,
-            'description': description,
-            'link': link,
-            'published': published,
-            'image_url': image_url
-        })
-
-    return articles
-
-
-def extract_text_from_description(description_html):
-    """Extract text content from the HTML description."""
-    description_text = re.sub(r'<img[^>]+>', '', description_html)
-    description_text = re.sub(r'<[^>]+>', '', description_text)
-    description_text = description_text.strip()
-    description_text = html.unescape(description_text)
-    return description_text
-
-
-def extract_image_from_description(description_html):
-    """Extract image URL from the description HTML."""
-    match = re.search(r'<img[^>]+src=["\'](.*?)["\']', description_html)
-    return match.group(1) if match else None
-
-
-def generate_translation(content):
-    """Send content to Gemini API for translation to Farsi."""
-    headers = {"Content-Type": "application/json"}
-
-    # Simplified prompt for translation
-    prompt = f"""
-    Translate the following text to Farsi. Only provide the translation in Farsi without any English content.
-    "{content}"
-    """
-
-    data = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
-    }
-
-    try:
-        response = requests.post(URL, headers=headers, data=json.dumps(data))
-        response.raise_for_status()
-        translated_text = get_response_content(response.json())
-        return translated_text
-    except requests.exceptions.RequestException as e:
-        print(f"Translation request failed: {e}")
-        return None
-
-
-def get_response_content(response):
-    """Extract the translated text from the API response."""
-    try:
-        return response['candidates'][0]['content']['parts'][0]['text']
-    except (KeyError, IndexError):
-        return "No content available."
-
-
 def read_published_articles():
-    """Read the list of previously published articles."""
+    """Read the list of previously published article links."""
     if not os.path.exists(PUBLISHED_FILE):
         return set()
-
     with open(PUBLISHED_FILE, 'r', encoding='utf-8') as file:
         return set(line.strip() for line in file)
 
-
-def save_published_article(title):
-    """Save a new article title to the file."""
+def save_published_article(link):
+    """Save a new article link to the file."""
     with open(PUBLISHED_FILE, 'a', encoding='utf-8') as file:
-        file.write(title + '\n')
+        file.write(link + '\n')
 
+def scrape_article(url):
+    """Scrape the detailed content of a news article."""
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
 
-def send_message(text, image_url=None):
-    """Send the translated content to the Telegram channel."""
-    text = text.strip()
+        # Find the headline
+        headline = None
+        for tag in ['h1', 'h2']:
+            headline_tag = soup.find(tag)
+            if headline_tag:
+                headline = headline_tag.get_text(strip=True)
+                break
+        if not headline:
+            headline = "No headline found"
 
-    if image_url:
-        if len(text) > 1024:
-            text = text[:1020] + '...'
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-        payload = {
-            'chat_id': CHANNEL_ID,
-            'photo': image_url,
-            'caption': text,
-            'parse_mode': 'HTML'
-        }
-    else:
-        if len(text) > 4096:
-            text = text[:4092] + '...'
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {
-            'chat_id': CHANNEL_ID,
-            'text': text,
-            'parse_mode': 'HTML'
-        }
+        # Find the main content
+        body = None
+        for class_name in ['content', 'article-body', 'story', 'post', 'entry-content']:
+            body_tag = soup.find('div', class_=class_name)
+            if body_tag:
+                body = body_tag.get_text(strip=True)
+                break
+        if not body:
+            paragraphs = soup.find_all('p')
+            if paragraphs:
+                body = "\n".join([p.get_text(strip=True) for p in paragraphs])
+            else:
+                body = "No content found"
 
+        # Find the publication date
+        publication_date = None
+        time_tag = soup.find('time')
+        if time_tag:
+            publication_date = time_tag.get_text(strip=True)
+        else:
+            meta_date = soup.find('meta', {'property': 'article:published_time'})
+            if meta_date and meta_date.get('content'):
+                publication_date = meta_date.get('content')
+            else:
+                publication_date = "No publication date found"
+
+        return {'headline': headline, 'content': body, 'date': publication_date}
+    except Exception as e:
+        print(f"Error scraping article: {e}")
+        return None
+
+def generate_summary(headline, content):
+    """Send the title and content to Gemini API for summarization."""
+    headers = {"Content-Type": "application/json"}
+    prompt = f"""
+    First read the following title and content:
+    Title: {headline}
+    Content: {content}
+    
+    Then, summarize them into a short Persian summary with a new title of your choosing. The summary should be the only output.
+    """
+
+    data = {
+        "prompt": prompt,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "candidate_count": 1,
+        "max_output_tokens": 512
+    }
+
+    try:
+        response = requests.post(URL, headers=headers, json=data)
+        response.raise_for_status()
+        return response.json()['candidates'][0]['output']
+    except Exception as e:
+        print(f"Error generating summary: {e}")
+        return None
+
+def send_message(text):
+    """Send the summary to the Telegram channel."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        'chat_id': CHANNEL_ID,
+        'text': text,
+        'parse_mode': 'HTML'
+    }
     try:
         response = requests.post(url, data=payload)
         response.raise_for_status()
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"Error sending message: {e}")
 
-
 def post_news_to_channel():
-    """Fetch, translate, and post news articles to the Telegram channel."""
-    feed_content = fetch_rss_feed()
-    if feed_content:
-        articles = parse_rss_feed(feed_content)
-        if articles:
-            published_articles = read_published_articles()
-            for article in articles:
-                title = article['title']
-                if title in published_articles:
-                    print(f"Skipping already published article: {title}")
-                    continue
+    """Fetch, scrape, summarize, and post news articles to the Telegram channel."""
+    links = fetch_rss_feed()
+    if not links:
+        print("No links found in the RSS feed.")
+        return
 
-                description = article['description']
-                link = article['link']
-                published = article['published']
-                image_url = article['image_url']
+    published_articles = read_published_articles()
+    for link in links:
+        if link in published_articles:
+            print(f"Skipping already published article: {link}")
+            continue
 
-                # Translate the title and description separately
-                translated_title = generate_translation(title)
-                translated_description = generate_translation(description)
+        article = scrape_article(link)
+        if not article:
+            print(f"Failed to scrape article: {link}")
+            continue
 
-                if not translated_title or not translated_description:
-                    print(f"Skipping article '{title}' due to translation error.")
-                    continue
+        summary = generate_summary(article['headline'], article['content'])
+        if not summary:
+            print(f"Failed to generate summary for: {link}")
+            continue
 
-                # Construct the message with translated title and description
-                message = (
-                    f"<b>{html.escape(translated_title)}</b>\n\n"
-                    f"{html.escape(translated_description)}\n\n"
-                    f"<a href=\"{html.escape(link)}\">بیشتر بخوانید</a>\n"
-                    f"<i>Published on: {html.escape(published)}</i>"
-                )
-
-                print(f"Posting article: {translated_title}")
-                send_message(message, image_url)
-
-                # Save the article title to prevent reposting
-                save_published_article(title)
-                time.sleep(2)
-
+        message = f"<b>{html.escape(article['headline'])}</b>\n\n{html.escape(summary)}\n\n<a href='{html.escape(link)}'>Read more</a>"
+        send_message(message)
+        save_published_article(link)
+        time.sleep(2)
 
 if __name__ == "__main__":
     post_news_to_channel()
