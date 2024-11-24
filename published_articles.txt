@@ -30,3 +30,8 @@ def send_message_with_image(photo_url, caption):
         print(f"Error sending message with image: {e}")
         print("DEBUG: Falling back to text-only message.")
         send_message(caption)  # Fallback to text-only message
+https://www.cbc.ca/news/canada/british-columbia/bear-attack-man-dog-maple-ridge-1.7391944?cmp=rss
+https://www.cbc.ca/news/canada/newfoundland-labrador/trinity-loop-rfp-tourism-1.7387096?cmp=rss
+https://www.cbc.ca/news/canada/post-secondary-cuts-1.7387175?cmp=rss
+https://www.cbc.ca/news/politics/two-billion-trees-trudeau-government-1.7390577?cmp=rss
+https://www.cbc.ca/news/canada/saskatoon/saskatoon-pharmacist-makes-luxury-chocolate-bars-1.7390626?cmp=rss
