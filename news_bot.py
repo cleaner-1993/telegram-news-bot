@@ -86,7 +86,7 @@ def generate_summary(headline, content):
     headers = {"Content-Type": "application/json"}
     data = {
         "contents": [
-            {"parts": [{"text": f"provide two summaries of the the following story in Persian, one very short like a inktresting subtitle and longer one like the main text, and provide a clean title without adding terms like 'عنوان' or '##':\n\nTitle: {headline}\n\n{content}"}]}
+            {"parts": [{"text": f"Summarize the following story in Persian, and provide a clean title without adding terms like 'عنوان' or '##':\n\nTitle: {headline}\n\n{content}"}]}
         ]
     }
     try:
