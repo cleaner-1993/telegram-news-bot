@@ -34,4 +34,4 @@ jobs:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}     # Telegram Bot Token from GitHub Secrets
         CHANNEL_ID: ${{ secrets.CHANNEL_ID }}   # Telegram Channel ID from GitHub Secrets
       run: |
-        python your_script_name.py
+        python news_bot.py
