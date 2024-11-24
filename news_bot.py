@@ -4,6 +4,7 @@ import os
 import html
 import time
 from bs4 import BeautifulSoup
+import shutil
 
 # Embed the API keys directly here (replace with your keys)
 API_KEY = os.getenv("API_KEY")
@@ -196,7 +197,52 @@ def save_published_article(link):
         with open(PUBLISHED_FILE, 'a', encoding='utf-8') as file:
             file.write(link + '\n')
 
+def download_image(image_url, save_directory="images"):
+    """Download an image from a URL and save it locally."""
+    try:
+        if not os.path.exists(save_directory):
+            os.makedirs(save_directory)  # Create the directory if it doesn't exist
+        
+        # Create a unique filename
+        filename = os.path.join(save_directory, os.path.basename(image_url).split('?')[0])
+        
+        # Download the image
+        response = requests.get(image_url, stream=True, timeout=10)
+        response.raise_for_status()  # Raise error for invalid responses
 
+        # Save the image locally
+        with open(filename, 'wb') as out_file:
+            shutil.copyfileobj(response.raw, out_file)
+        print(f"DEBUG: Successfully downloaded image: {filename}")
+        return filename
+    except Exception as e:
+        print(f"Error downloading image: {e}")
+        return None
+
+def send_message_with_local_image(image_path, caption):
+    """Send an image from a local file to the Telegram channel."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    with open(image_path, 'rb') as photo:
+        payload = {
+            'chat_id': CHANNEL_ID,
+            'caption': caption,
+            'parse_mode': 'HTML'
+        }
+        files = {'photo': photo}
+        try:
+            response = requests.post(url, data=payload, files=files)
+            response.raise_for_status()  # Raise error for invalid responses
+            print(f"DEBUG: Successfully sent message with local image: {image_path}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error sending message with local image: {e}")
+            send_message(caption)  # Fallback to text-only post
+def delete_local_image(image_path):
+    """Delete a local image file."""
+    try:
+        os.remove(image_path)
+        print(f"DEBUG: Successfully deleted local image: {image_path}")
+    except Exception as e:
+        print(f"Error deleting local image: {e}")
 
 def post_news_to_channel():
     """Fetch, scrape, summarize, and post news articles with images to the Telegram channel."""
@@ -244,11 +290,16 @@ def post_news_to_channel():
         description = getattr(entry, "description", None)
         image_url = extract_image_from_description(description)
 
-        # Send the message to the Telegram channel
+        # Download, send, and clean up image
         if image_url:
-            send_message_with_image(image_url, caption)
+            local_image_path = download_image(image_url)
+            if local_image_path:
+                send_message_with_local_image(local_image_path, caption)
+                delete_local_image(local_image_path)  # Cleanup after sending
+            else:
+                send_message(caption)  # Fallback to text-only if download fails
         else:
-            print(f"DEBUG: No valid image URL for article: {link}")
+            send_message(caption)  # Fallback to text-only if no image is found
 
         # Save the article link to avoid reposting
         save_published_article(link)
