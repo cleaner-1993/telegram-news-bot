@@ -163,6 +163,7 @@ def save_published_article(link):
             file.write(link + '\n')
 
 
+
 def post_news_to_channel():
     """Fetch, scrape, summarize, and post news articles with images to the Telegram channel."""
     entries = fetch_rss_feed()
