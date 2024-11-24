@@ -133,6 +133,8 @@ def generate_summary(headline, content):
 def extract_image_from_description(description):
     """Extract the image URL from the RSS description tag."""
     try:
+        if not description:
+            return None  # Return None if description is missing or empty
         soup = BeautifulSoup(description, 'html.parser')
         img_tag = soup.find('img')
         if img_tag and 'src' in img_tag.attrs:
@@ -141,6 +143,7 @@ def extract_image_from_description(description):
     except Exception as e:
         print(f"Error extracting image: {e}")
         return None
+
 
 
 def send_message_with_image(photo_url, caption):
