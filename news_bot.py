@@ -150,12 +150,19 @@ def send_message_with_local_image(image_path, caption):
         print(f"Error sending message with local image: {e}")
 
 def clear_image_folder():
-    """Clear all images in the IMAGE_FOLDER directory."""
+    """Clear all images in the IMAGE_FOLDER directory without deleting the folder."""
     try:
         if os.path.exists(IMAGE_FOLDER):
-            shutil.rmtree(IMAGE_FOLDER)
+            for filename in os.listdir(IMAGE_FOLDER):
+                file_path = os.path.join(IMAGE_FOLDER, filename)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)  # Remove each file in the folder
+            print("DEBUG: Cleared the contents of the image folder.")
+        else:
+            print(f"DEBUG: Folder '{IMAGE_FOLDER}' does not exist, nothing to clear.")
     except Exception as e:
         print(f"Error clearing image folder: {e}")
+
 
 def post_news_to_channel():
     """Fetch, scrape, summarize, and post news articles with images."""
