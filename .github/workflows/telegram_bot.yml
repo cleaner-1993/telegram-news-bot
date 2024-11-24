@@ -1,25 +1,37 @@
-name: Telegram News Bot
+name: Post News to Telegram
 
 on:
   schedule:
-    - cron: "*/30 * * * *"  # Runs every 30 minutes
-  workflow_dispatch:  # Allows manual triggering of the workflow
+    # Run every 30 minutes
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Allow manual trigger of the workflow
 
 jobs:
-  run-bot:
+  post-news:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
+    # Step 1: Check out the repository
+    - name: Check out code
       uses: actions/checkout@v3
 
+    # Step 2: Set up Python
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
 
+    # Step 3: Install dependencies
     - name: Install dependencies
-      run: pip install -r requirements.txt
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-    - name: Run Telegram News Bot
-      run: python news_bot.py # Replace with your script's name
+    # Step 4: Run the script
+    - name: Run Python Script
+      env:
+        API_KEY: ${{ secrets.API_KEY }}         # Gemini API Key from GitHub Secrets
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}     # Telegram Bot Token from GitHub Secrets
+        CHANNEL_ID: ${{ secrets.CHANNEL_ID }}   # Telegram Channel ID from GitHub Secrets
+      run: |
+        python your_script_name.py
