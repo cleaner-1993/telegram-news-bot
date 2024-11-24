@@ -197,52 +197,74 @@ def save_published_article(link):
         with open(PUBLISHED_FILE, 'a', encoding='utf-8') as file:
             file.write(link + '\n')
 
-def download_image(image_url, save_directory="images"):
-    """Download an image from a URL and save it locally."""
+import os
+import requests
+import shutil
+import time
+
+def download_image(image_url, save_directory="images", retries=3, timeout=30):
+    """Download an image from a URL with retries and save it locally."""
     try:
         if not os.path.exists(save_directory):
             os.makedirs(save_directory)  # Create the directory if it doesn't exist
-        
-        # Create a unique filename
-        filename = os.path.join(save_directory, os.path.basename(image_url).split('?')[0])
-        
-        # Download the image
-        response = requests.get(image_url, stream=True, timeout=10)
-        response.raise_for_status()  # Raise error for invalid responses
 
-        # Save the image locally
-        with open(filename, 'wb') as out_file:
-            shutil.copyfileobj(response.raw, out_file)
-        print(f"DEBUG: Successfully downloaded image: {filename}")
-        return filename
+        # Create a unique filename based on the URL
+        filename = os.path.join(save_directory, os.path.basename(image_url).split('?')[0])
+
+        for attempt in range(retries):
+            try:
+                print(f"DEBUG: Attempting to download image: {image_url} (Attempt {attempt + 1})")
+                response = requests.get(image_url, stream=True, timeout=timeout)
+                response.raise_for_status()  # Raise error for invalid responses
+
+                # Save the image locally
+                with open(filename, 'wb') as out_file:
+                    shutil.copyfileobj(response.raw, out_file)
+
+                print(f"DEBUG: Successfully downloaded image: {filename}")
+                return filename  # Return the local file path
+            except requests.exceptions.RequestException as e:
+                print(f"Error downloading image on attempt {attempt + 1}: {e}")
+                time.sleep(2)  # Wait before retrying
+
+        print(f"ERROR: Failed to download image after {retries} attempts: {image_url}")
+        return None  # Return None if all retries fail
     except Exception as e:
-        print(f"Error downloading image: {e}")
+        print(f"Unexpected error while downloading image: {e}")
         return None
+
 
 def send_message_with_local_image(image_path, caption):
     """Send an image from a local file to the Telegram channel."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    with open(image_path, 'rb') as photo:
-        payload = {
-            'chat_id': CHANNEL_ID,
-            'caption': caption,
-            'parse_mode': 'HTML'
-        }
-        files = {'photo': photo}
-        try:
+    try:
+        with open(image_path, 'rb') as photo:
+            payload = {
+                'chat_id': CHANNEL_ID,
+                'caption': caption,
+                'parse_mode': 'HTML'
+            }
+            files = {'photo': photo}
+
             response = requests.post(url, data=payload, files=files)
             response.raise_for_status()  # Raise error for invalid responses
-            print(f"DEBUG: Successfully sent message with local image: {image_path}")
-        except requests.exceptions.RequestException as e:
-            print(f"Error sending message with local image: {e}")
-            send_message(caption)  # Fallback to text-only post
+
+        print(f"DEBUG: Successfully sent message with local image: {image_path}")
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: Failed to send message with local image: {e}. Falling back to text-only message.")
+        send_message(caption)  # Fallback to text-only post
+
+
 def delete_local_image(image_path):
     """Delete a local image file."""
     try:
         os.remove(image_path)
         print(f"DEBUG: Successfully deleted local image: {image_path}")
+    except FileNotFoundError:
+        print(f"WARNING: Image file not found for deletion: {image_path}")
     except Exception as e:
-        print(f"Error deleting local image: {e}")
+        print(f"ERROR: Failed to delete image file: {e}")
+
 
 def post_news_to_channel():
     """Fetch, scrape, summarize, and post news articles with images to the Telegram channel."""
@@ -304,12 +326,11 @@ def post_news_to_channel():
         # Save the article link to avoid reposting
         save_published_article(link)
 
-        time.sleep(2)
+        time.sleep(2)  # Throttle requests to avoid rate limiting
 
     # Exit gracefully if no new articles were found
     if not new_articles_found:
         print("No new articles to post. Exiting.")
-
 
 
 if __name__ == "__main__":
