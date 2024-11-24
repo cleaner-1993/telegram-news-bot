@@ -20,6 +20,9 @@ URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash
 # File to store published articles
 PUBLISHED_FILE = "published_articles.txt"
 
+# Folder for saving images
+IMAGE_FOLDER = "saved_images"
+
 def fetch_rss_feed():
     """Fetch the RSS feed and extract entries."""
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -52,11 +55,9 @@ def scrape_article(url):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # Find the headline (English title)
         headline = soup.find('h1') or soup.find('h2')
         headline = headline.get_text(strip=True) if headline else "No headline found"
 
-        # Find the main content
         body = None
         for class_name in ['content', 'article-body', 'story', 'post', 'entry-content']:
             body_tag = soup.find('div', class_=class_name)
@@ -67,7 +68,6 @@ def scrape_article(url):
             paragraphs = soup.find_all('p')
             body = "\n".join([p.get_text(strip=True) for p in paragraphs]) if paragraphs else "No content found"
 
-        # Find the publication date
         publication_date = None
         time_tag = soup.find('time')
         if time_tag:
@@ -81,158 +81,57 @@ def scrape_article(url):
         print(f"Error scraping article: {e}")
         return None
 
-
 def generate_summary(headline, content):
     """Send the title and content to Gemini API for summarization."""
     headers = {"Content-Type": "application/json"}
-    # Prepare input for the API
     data = {
         "contents": [
             {"parts": [{"text": f"Summarize the following story in Persian, using bullets, and provide a clean title without adding terms like 'عنوان' or '##':\n\nTitle: {headline}\n\n{content}"}]}
         ]
     }
-
     try:
-        # Consolidated debug log
-        print(f"DEBUG: Sending request to Gemini API with URL: {URL} and payload: {data}")
-
-        # Send request
         response = requests.post(URL, headers=headers, json=data)
         response.raise_for_status()
-
-        # Consolidated response log
-        print(f"DEBUG: Received response: {response.status_code}, Content: {response.text}")
-
-        # Parse the response
         result = response.json()
         persian_summary = result["candidates"][0]["content"]["parts"][0]["text"]
-
-        # Process the response to extract the title and summary
         lines = persian_summary.split("\n")
         if len(lines) == 0:
             return None, None
-
-        # Extract and clean the title
         cleaned_title = lines[0].strip()
-        unwanted_terms = ["عنوان", "##"]
-        for term in unwanted_terms:
-            cleaned_title = cleaned_title.replace(term, "").strip()
-
-        # Extract and clean the summary
         cleaned_summary = "\n".join(lines[1:]).strip()
-
         return cleaned_title, cleaned_summary
     except requests.exceptions.RequestException as e:
         print(f"Error generating summary: {e}")
         return None, None
 
-
 def extract_image_from_description(description):
     """Extract the image URL from the RSS description tag."""
     try:
         if not description:
-            print("DEBUG: Description is missing or empty.")
             return None
         soup = BeautifulSoup(description, 'html.parser')
         img_tag = soup.find('img')
         if img_tag and 'src' in img_tag.attrs:
-            print(f"DEBUG: Found image URL: {img_tag['src']}")
             return img_tag['src']
-        print("DEBUG: No image tag or 'src' attribute found in description.")
         return None
     except Exception as e:
         print(f"Error extracting image from description: {e}")
         return None
-        
-def send_message(caption):
-    """Send a text-only message to the Telegram channel."""
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        'chat_id': CHANNEL_ID,
-        'text': caption,
-        'parse_mode': 'HTML'
-    }
+
+def download_image(image_url):
+    """Download an image and save it locally."""
     try:
-        response = requests.post(url, data=payload)
-        response.raise_for_status()  # Raise an error for HTTP codes 4xx/5xx
-        print(f"DEBUG: Successfully sent text-only message.")
-    except requests.exceptions.RequestException as e:
-        print(f"Error sending text-only message: {e}")
-
-
-def send_message_with_image(photo_url, caption):
-    """Send the summary with an image to the Telegram channel."""
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    payload = {
-        'chat_id': CHANNEL_ID,
-        'photo': photo_url,
-        'caption': caption,
-        'parse_mode': 'HTML'
-    }
-    try:
-        response = requests.post(url, data=payload)
-        response.raise_for_status()  # Raise an error for HTTP codes 4xx/5xx
-        print(f"DEBUG: Successfully sent message with image: {photo_url}")
-    except requests.exceptions.RequestException as e:
-        print(f"Error sending message with image: {e}")
-        print("DEBUG: Falling back to log-only mode. Image post failed.")
-
-
-
-def format_bullet_points(summary):
-    """Format the bullet points to add spacing between them."""
-    # Split the summary into lines, add a blank line after each bullet
-    formatted_summary = ""
-    for line in summary.split("\n"):
-        if line.startswith("*"):
-            formatted_summary += f"{line.strip()}\n\n"  # Add an extra newline for spacing
-        else:
-            formatted_summary += f"{line.strip()}\n"  # Handle non-bullet lines
-    return formatted_summary.strip()  # Remove any trailing spaces or newlines
-
-def save_published_article(link):
-    """Save a new article link to the file."""
-    published_articles = read_published_articles()
-    if link not in published_articles:  # Avoid writing duplicates
-        with open(PUBLISHED_FILE, 'a', encoding='utf-8') as file:
-            file.write(link + '\n')
-
-import os
-import requests
-import shutil
-import time
-
-def download_image(image_url, save_directory="images", retries=3, timeout=30):
-    """Download an image from a URL with retries and save it locally."""
-    try:
-        if not os.path.exists(save_directory):
-            os.makedirs(save_directory)  # Create the directory if it doesn't exist
-
-        # Create a unique filename based on the URL
-        filename = os.path.join(save_directory, os.path.basename(image_url).split('?')[0])
-
-        for attempt in range(retries):
-            try:
-                print(f"DEBUG: Attempting to download image: {image_url} (Attempt {attempt + 1})")
-                response = requests.get(image_url, stream=True, timeout=timeout)
-                response.raise_for_status()  # Raise error for invalid responses
-
-                # Save the image locally
-                with open(filename, 'wb') as out_file:
-                    shutil.copyfileobj(response.raw, out_file)
-
-                print(f"DEBUG: Successfully downloaded image: {filename}")
-                return filename  # Return the local file path
-            except requests.exceptions.RequestException as e:
-                print(f"Error downloading image on attempt {attempt + 1}: {e}")
-                time.sleep(2)  # Wait before retrying
-
-        print(f"ERROR: Failed to download image after {retries} attempts: {image_url}")
-        return None  # Return None if all retries fail
+        if not os.path.exists(IMAGE_FOLDER):
+            os.makedirs(IMAGE_FOLDER)
+        filename = os.path.join(IMAGE_FOLDER, os.path.basename(image_url).split('?')[0])
+        response = requests.get(image_url, headers={'User-Agent': 'Mozilla/5.0'}, stream=True, timeout=10)
+        response.raise_for_status()
+        with open(filename, 'wb') as img_file:
+            shutil.copyfileobj(response.raw, img_file)
+        return filename
     except Exception as e:
-        print(f"Unexpected error while downloading image: {e}")
+        print(f"Error downloading image: {e}")
         return None
-
 
 def send_message_with_local_image(image_path, caption):
     """Send an image from a local file to the Telegram channel."""
@@ -245,93 +144,47 @@ def send_message_with_local_image(image_path, caption):
                 'parse_mode': 'HTML'
             }
             files = {'photo': photo}
-
             response = requests.post(url, data=payload, files=files)
-            response.raise_for_status()  # Raise error for invalid responses
-
-        print(f"DEBUG: Successfully sent message with local image: {image_path}")
-    except requests.exceptions.RequestException as e:
-        print(f"ERROR: Failed to send message with local image: {e}. Falling back to text-only message.")
-        send_message(caption)  # Fallback to text-only post
-
-
-def delete_local_image(image_path):
-    """Delete a local image file."""
-    try:
-        os.remove(image_path)
-        print(f"DEBUG: Successfully deleted local image: {image_path}")
-    except FileNotFoundError:
-        print(f"WARNING: Image file not found for deletion: {image_path}")
+            response.raise_for_status()
     except Exception as e:
-        print(f"ERROR: Failed to delete image file: {e}")
+        print(f"Error sending message with local image: {e}")
 
+def clear_image_folder():
+    """Clear all images in the IMAGE_FOLDER directory."""
+    try:
+        if os.path.exists(IMAGE_FOLDER):
+            shutil.rmtree(IMAGE_FOLDER)
+    except Exception as e:
+        print(f"Error clearing image folder: {e}")
 
 def post_news_to_channel():
-    """Fetch, scrape, summarize, and post news articles with images to the Telegram channel."""
+    """Fetch, scrape, summarize, and post news articles with images."""
     entries = fetch_rss_feed()
     if not entries:
-        print("No entries found in the RSS feed.")
         return
-
     published_articles = read_published_articles()
-    new_articles_found = False  # Flag to track new articles
-
     for entry in entries:
         link = entry.link
-
-        # Skip if the article has already been posted
         if link in published_articles:
-            print(f"Skipping already published article: {link}")
             continue
-
-        # Mark that we found a new article
-        new_articles_found = True
-
-        # Scrape the article details
         article = scrape_article(link)
         if not article:
-            print(f"Failed to scrape article: {link}")
             continue
-
-        # Generate the Persian title and summary
         persian_title, summary = generate_summary(article['headline'], article['content'])
         if not persian_title or not summary:
-            print(f"Failed to generate summary for: {link}")
             continue
-
-        # Format the summary with spacing between bullet points
-        formatted_summary = format_bullet_points(summary)
-
-        # Add the red dot (🔴) to the Persian title
-        persian_title_with_dot = f"🔴 {persian_title}"
-
-        # Prepare the caption
-        caption = f"<b>{html.escape(persian_title_with_dot)}</b>\n\n{html.escape(formatted_summary)}\n\n<a href='{html.escape(link)}'>بیشتر بخوانید</a>"
-
-        # Safely handle entry.description
+        formatted_summary = f"<b>🔴 {persian_title}</b>\n\n{summary}"
         description = getattr(entry, "description", None)
         image_url = extract_image_from_description(description)
-
-        # Download, send, and clean up image
         if image_url:
-            local_image_path = download_image(image_url)
-            if local_image_path:
-                send_message_with_local_image(local_image_path, caption)
-                delete_local_image(local_image_path)  # Cleanup after sending
-            else:
-                send_message(caption)  # Fallback to text-only if download fails
+            image_path = download_image(image_url)
+            if image_path:
+                send_message_with_local_image(image_path, formatted_summary)
         else:
-            send_message(caption)  # Fallback to text-only if no image is found
-
-        # Save the article link to avoid reposting
+            print("No image available for this article.")
         save_published_article(link)
-
-        time.sleep(2)  # Throttle requests to avoid rate limiting
-
-    # Exit gracefully if no new articles were found
-    if not new_articles_found:
-        print("No new articles to post. Exiting.")
-
+        time.sleep(2)
+    clear_image_folder()
 
 if __name__ == "__main__":
     post_news_to_channel()
