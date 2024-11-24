@@ -24,13 +24,13 @@ PUBLISHED_FILE = "published_articles.txt"
 IMAGE_FOLDER = "saved_images"
 
 def fetch_rss_feed():
-    """Fetch the RSS feed and extract entries."""
+    """Fetch the RSS feed and extract all entries."""
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         response = requests.get(RSS_FEED_URL, headers=headers, timeout=10)
         response.raise_for_status()
         feed = feedparser.parse(response.text)
-        return feed.entries[:5]  # Return the latest 5 entries
+        return feed.entries  # Return all entries
     except requests.exceptions.RequestException as e:
         print(f"Error fetching the RSS feed: {e}")
         return []
@@ -93,13 +93,16 @@ def generate_summary(headline, content):
         response = requests.post(URL, headers=headers, json=data)
         response.raise_for_status()
         result = response.json()
+        # Adjust the parsing based on the actual response format
         persian_summary = result["candidates"][0]["content"]["parts"][0]["text"]
-        lines = persian_summary.split("\n")
-        if len(lines) == 0:
-            return None, None
-        cleaned_title = lines[0].strip()
-        cleaned_summary = "\n".join(lines[1:]).strip()
-        return cleaned_title, cleaned_summary
+        # Split the response into title and summary
+        lines = persian_summary.strip().split('\n', 1)
+        if len(lines) == 2:
+            cleaned_title, cleaned_summary = lines
+        else:
+            cleaned_title = lines[0]
+            cleaned_summary = ''
+        return cleaned_title.strip(), cleaned_summary.strip()
     except requests.exceptions.RequestException as e:
         print(f"Error generating summary: {e}")
         return None, None
@@ -150,12 +153,7 @@ def send_message_with_local_image(image_path, caption):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     response = None
     try:
-        # Escape HTML characters in the caption
-        caption = html.escape(caption)
-        # Trim the caption if it's too long
-        if len(caption) > 1024:
-            print("Caption is too long, trimming to 1024 characters.")
-            caption = caption[:1021] + '...'
+        # Do not escape caption here; it's already handled
         with open(image_path, 'rb') as photo:
             payload = {
                 'chat_id': CHANNEL_ID,
@@ -181,12 +179,7 @@ def send_message_without_image(caption):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     response = None
     try:
-        # Escape HTML characters
-        caption = html.escape(caption)
-        # Trim the caption if it's too long
-        if len(caption) > 4096:
-            print("Caption is too long, trimming to 4096 characters.")
-            caption = caption[:4093] + '...'
+        # Do not escape caption here; it's already handled
         payload = {
             'chat_id': CHANNEL_ID,
             'text': caption,
@@ -213,11 +206,18 @@ def clear_image_folder():
                 file_path = os.path.join(IMAGE_FOLDER, filename)
                 if os.path.isfile(file_path):
                     os.remove(file_path)  # Remove each file in the folder
-                print("DEBUG: Cleared the contents of the image folder.")
+            print("DEBUG: Cleared the contents of the image folder.")
         else:
             print(f"DEBUG: Folder '{IMAGE_FOLDER}' does not exist, nothing to clear.")
     except Exception as e:
         print(f"Error clearing image folder: {e}")
+
+def truncate_text(text, max_length):
+    """Truncate text to a maximum length, adding ellipsis if truncated."""
+    if len(text) > max_length:
+        return text[:max_length - 3] + '...'
+    else:
+        return text
 
 def post_news_to_channel():
     """Fetch, scrape, summarize, and post news articles with images."""
@@ -235,9 +235,25 @@ def post_news_to_channel():
         persian_title, summary = generate_summary(article['headline'], article['content'])
         if not persian_title or not summary:
             continue
-        formatted_summary = f"🔴<b> {html.escape(persian_title)}</b>\n\n{html.escape(summary)}"
+        # Prepare the message
+        escaped_title = html.escape(persian_title)
+        escaped_summary = html.escape(summary)
+        read_more_link = f"\n\n<b>بیشتر بخوانید:</b> {link}"
+        formatted_summary = f"<b>🔴 {escaped_title}</b>\n\n{escaped_summary}{read_more_link}"
+        # Determine the maximum length based on whether an image is present
         description = getattr(entry, "description", None)
         image_url = extract_image_from_description(description)
+        if image_url:
+            max_length = 1024
+        else:
+            max_length = 4096
+        # Truncate if necessary
+        if len(formatted_summary) > max_length:
+            title_length = len(f"<b>🔴 {escaped_title}</b>\n\n")
+            link_length = len(read_more_link)
+            available_summary_length = max_length - title_length - link_length
+            truncated_summary = truncate_text(escaped_summary, available_summary_length)
+            formatted_summary = f"<b>🔴 {escaped_title}</b>\n\n{truncated_summary}{read_more_link}"
         success = False
         if image_url:
             image_path = download_image(image_url)
@@ -246,6 +262,9 @@ def post_news_to_channel():
                 if not success:
                     print("Failed to send image with message, trying without image.")
                     success = send_message_without_image(formatted_summary)
+            else:
+                print("Failed to download image, sending message without image.")
+                success = send_message_without_image(formatted_summary)
         else:
             print("No image available for this article.")
             success = send_message_without_image(formatted_summary)
