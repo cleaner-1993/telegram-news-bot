@@ -130,15 +130,19 @@ def extract_image_from_description(description):
     """Extract the image URL from the RSS description tag."""
     try:
         if not description:
-            return None  # Return None if description is missing or empty
+            print("DEBUG: Description is missing or empty.")
+            return None
         soup = BeautifulSoup(description, 'html.parser')
         img_tag = soup.find('img')
         if img_tag and 'src' in img_tag.attrs:
+            print(f"DEBUG: Found image URL: {img_tag['src']}")
             return img_tag['src']
+        print("DEBUG: No image tag or 'src' attribute found in description.")
         return None
     except Exception as e:
-        print(f"Error extracting image: {e}")
+        print(f"Error extracting image from description: {e}")
         return None
+        
 def send_message(caption):
     """Send a text-only message to the Telegram channel."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -156,22 +160,7 @@ def send_message(caption):
 
 
 def send_message_with_image(photo_url, caption):
-    """Send the summary with an image to the Telegram channel, with URL validation and fallback."""
-    def is_valid_url(url):
-        """Check if a URL is valid and accessible."""
-        try:
-            response = requests.head(url, timeout=5)
-            return response.status_code == 200
-        except requests.RequestException:
-            return False
-
-    # Validate the image URL before sending the message
-    if not is_valid_url(photo_url):
-        print(f"DEBUG: Invalid photo URL: {photo_url}. Falling back to text-only message.")
-        send_message(caption)  # Fallback to text-only message
-        return
-
-    # Prepare the API call to send the photo
+    """Send the summary with an image to the Telegram channel."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     payload = {
         'chat_id': CHANNEL_ID,
@@ -181,12 +170,11 @@ def send_message_with_image(photo_url, caption):
     }
     try:
         response = requests.post(url, data=payload)
-        response.raise_for_status()  # Raise an exception for 4xx/5xx errors
+        response.raise_for_status()  # Raise an error for HTTP codes 4xx/5xx
         print(f"DEBUG: Successfully sent message with image: {photo_url}")
     except requests.exceptions.RequestException as e:
         print(f"Error sending message with image: {e}")
-        print("DEBUG: Falling back to text-only message.")
-        send_message(caption)  # Fallback to text-only message
+        print("DEBUG: Falling back to log-only mode. Image post failed.")
 
 
 
@@ -260,7 +248,7 @@ def post_news_to_channel():
         if image_url:
             send_message_with_image(image_url, caption)
         else:
-            send_message(caption)  # Fallback to text-only if no image is found
+            print(f"DEBUG: No valid image URL for article: {link}")
 
         # Save the article link to avoid reposting
         save_published_article(link)
