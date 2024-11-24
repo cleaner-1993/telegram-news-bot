@@ -6,9 +6,9 @@ import time
 from bs4 import BeautifulSoup
 
 # Embed the API keys directly here (replace with your keys)
-API_KEY = "YOUR_API_KEY"
-BOT_TOKEN = "YOUR_BOT_TOKEN"
-CHANNEL_ID = "YOUR_CHANNEL_ID"
+API_KEY = "API_KEY"
+BOT_TOKEN = "BOT_TOKEN"
+CHANNEL_ID = "CHANNEL_ID"
 
 # CBC Canada News RSS Feed URL
 RSS_FEED_URL = 'https://rss.cbc.ca/lineup/canada.xml'
