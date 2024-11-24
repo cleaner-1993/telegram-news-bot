@@ -141,6 +141,21 @@ def extract_image_from_description(description):
         return None
 
 
+def send_message_with_image(photo_url, caption):
+    """Send the summary with an image to the Telegram channel."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    payload = {
+        'chat_id': CHANNEL_ID,
+        'photo': photo_url,
+        'caption': caption,
+        'parse_mode': 'HTML'
+    }
+    try:
+        response = requests.post(url, data=payload)
+        response.raise_for_status()  # Raise an error for HTTP codes 4xx/5xx
+        print(f"DEBUG: Successfully sent message with image: {photo_url}")
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending message with image: {e}")
 
 
 
