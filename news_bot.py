@@ -126,8 +126,20 @@ def download_image(image_url):
         filename = os.path.join(IMAGE_FOLDER, os.path.basename(image_url).split('?')[0])
         response = requests.get(image_url, headers={'User-Agent': 'Mozilla/5.0'}, stream=True, timeout=10)
         response.raise_for_status()
+        content_type = response.headers.get('Content-Type')
+        if not content_type.startswith('image/'):
+            print(f"URL does not contain an image: {image_url}")
+            return None
+        # Limit image size to 10 MB
+        max_size = 10 * 1024 * 1024  # 10 MB
+        total_size = 0
         with open(filename, 'wb') as img_file:
-            shutil.copyfileobj(response.raw, img_file)
+            for chunk in response.iter_content(1024):
+                total_size += len(chunk)
+                if total_size > max_size:
+                    print(f"Image size exceeds 10 MB: {image_url}")
+                    return None
+                img_file.write(chunk)
         return filename
     except Exception as e:
         print(f"Error downloading image: {e}")
@@ -136,7 +148,14 @@ def download_image(image_url):
 def send_message_with_local_image(image_path, caption):
     """Send an image from a local file to the Telegram channel."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    response = None
     try:
+        # Escape HTML characters in the caption
+        caption = html.escape(caption)
+        # Trim the caption if it's too long
+        if len(caption) > 1024:
+            print("Caption is too long, trimming to 1024 characters.")
+            caption = caption[:1021] + '...'
         with open(image_path, 'rb') as photo:
             payload = {
                 'chat_id': CHANNEL_ID,
@@ -146,8 +165,45 @@ def send_message_with_local_image(image_path, caption):
             files = {'photo': photo}
             response = requests.post(url, data=payload, files=files)
             response.raise_for_status()
-    except Exception as e:
+            return True
+    except requests.exceptions.RequestException as e:
         print(f"Error sending message with local image: {e}")
+        if response is not None and response.content:
+            try:
+                error_info = response.json()
+                print(f"Telegram API error: {error_info}")
+            except ValueError:
+                print(f"Non-JSON response content: {response.content}")
+        return False
+
+def send_message_without_image(caption):
+    """Send a message without an image to the Telegram channel."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    response = None
+    try:
+        # Escape HTML characters
+        caption = html.escape(caption)
+        # Trim the caption if it's too long
+        if len(caption) > 4096:
+            print("Caption is too long, trimming to 4096 characters.")
+            caption = caption[:4093] + '...'
+        payload = {
+            'chat_id': CHANNEL_ID,
+            'text': caption,
+            'parse_mode': 'HTML'
+        }
+        response = requests.post(url, data=payload)
+        response.raise_for_status()
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending message without image: {e}")
+        if response is not None and response.content:
+            try:
+                error_info = response.json()
+                print(f"Telegram API error: {error_info}")
+            except ValueError:
+                print(f"Non-JSON response content: {response.content}")
+        return False
 
 def clear_image_folder():
     """Clear all images in the IMAGE_FOLDER directory without deleting the folder."""
@@ -157,12 +213,11 @@ def clear_image_folder():
                 file_path = os.path.join(IMAGE_FOLDER, filename)
                 if os.path.isfile(file_path):
                     os.remove(file_path)  # Remove each file in the folder
-            print("DEBUG: Cleared the contents of the image folder.")
+                print("DEBUG: Cleared the contents of the image folder.")
         else:
             print(f"DEBUG: Folder '{IMAGE_FOLDER}' does not exist, nothing to clear.")
     except Exception as e:
         print(f"Error clearing image folder: {e}")
-
 
 def post_news_to_channel():
     """Fetch, scrape, summarize, and post news articles with images."""
@@ -180,16 +235,24 @@ def post_news_to_channel():
         persian_title, summary = generate_summary(article['headline'], article['content'])
         if not persian_title or not summary:
             continue
-        formatted_summary = f"<b>🔴 {persian_title}</b>\n\n{summary}"
+        formatted_summary = f"<b>🔴 {html.escape(persian_title)}</b>\n\n{html.escape(summary)}"
         description = getattr(entry, "description", None)
         image_url = extract_image_from_description(description)
+        success = False
         if image_url:
             image_path = download_image(image_url)
             if image_path:
-                send_message_with_local_image(image_path, formatted_summary)
+                success = send_message_with_local_image(image_path, formatted_summary)
+                if not success:
+                    print("Failed to send image with message, trying without image.")
+                    success = send_message_without_image(formatted_summary)
         else:
             print("No image available for this article.")
-        save_published_article(link)
+            success = send_message_without_image(formatted_summary)
+        if success:
+            save_published_article(link)
+        else:
+            print("Failed to send message, not saving link.")
         time.sleep(2)
     clear_image_folder()
 
