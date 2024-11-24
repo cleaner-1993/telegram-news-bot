@@ -86,7 +86,7 @@ def generate_summary(headline, content):
     headers = {"Content-Type": "application/json"}
     data = {
         "contents": [
-            {"parts": [{"text": f"Summarize the following story in Persian, using bullets, and provide a clean title without adding terms like 'عنوان' or '##':\n\nTitle: {headline}\n\n{content}"}]}
+            {"parts": [{"text": f"provide two summaries of the the following story in Persian, one very short like a inktresting subtitle and longer one like the main text, and provide a clean title without adding terms like 'عنوان' or '##':\n\nTitle: {headline}\n\n{content}"}]}
         ]
     }
     try:
@@ -235,7 +235,7 @@ def post_news_to_channel():
         persian_title, summary = generate_summary(article['headline'], article['content'])
         if not persian_title or not summary:
             continue
-        formatted_summary = f"<b>🔴 {html.escape(persian_title)}</b>\n\n{html.escape(summary)}"
+        formatted_summary = f"🔴<b> {html.escape(persian_title)}</b>\n\n{html.escape(summary)}"
         description = getattr(entry, "description", None)
         image_url = extract_image_from_description(description)
         success = False
