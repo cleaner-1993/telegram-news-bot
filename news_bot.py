@@ -142,7 +142,22 @@ def extract_image_from_description(description):
 
 
 def send_message_with_image(photo_url, caption):
-    """Send the summary with an image to the Telegram channel."""
+    """Send the summary with an image to the Telegram channel, with URL validation and fallback."""
+    def is_valid_url(url):
+        """Check if a URL is valid and accessible."""
+        try:
+            response = requests.head(url, timeout=5)
+            return response.status_code == 200
+        except requests.RequestException:
+            return False
+
+    # Validate the image URL before sending the message
+    if not is_valid_url(photo_url):
+        print(f"DEBUG: Invalid photo URL: {photo_url}. Falling back to text-only message.")
+        send_message(caption)  # Fallback to text-only message
+        return
+
+    # Prepare the API call to send the photo
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     payload = {
         'chat_id': CHANNEL_ID,
@@ -152,10 +167,13 @@ def send_message_with_image(photo_url, caption):
     }
     try:
         response = requests.post(url, data=payload)
-        response.raise_for_status()  # Raise an error for HTTP codes 4xx/5xx
+        response.raise_for_status()  # Raise an exception for 4xx/5xx errors
         print(f"DEBUG: Successfully sent message with image: {photo_url}")
     except requests.exceptions.RequestException as e:
         print(f"Error sending message with image: {e}")
+        print("DEBUG: Falling back to text-only message.")
+        send_message(caption)  # Fallback to text-only message
+
 
 
 
