@@ -139,6 +139,20 @@ def extract_image_from_description(description):
     except Exception as e:
         print(f"Error extracting image: {e}")
         return None
+def send_message(caption):
+    """Send a text-only message to the Telegram channel."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        'chat_id': CHANNEL_ID,
+        'text': caption,
+        'parse_mode': 'HTML'
+    }
+    try:
+        response = requests.post(url, data=payload)
+        response.raise_for_status()  # Raise an error for HTTP codes 4xx/5xx
+        print(f"DEBUG: Successfully sent text-only message.")
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending text-only message: {e}")
 
 
 def send_message_with_image(photo_url, caption):
@@ -173,7 +187,6 @@ def send_message_with_image(photo_url, caption):
         print(f"Error sending message with image: {e}")
         print("DEBUG: Falling back to text-only message.")
         send_message(caption)  # Fallback to text-only message
-
 
 
 
