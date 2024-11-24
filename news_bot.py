@@ -191,13 +191,17 @@ def post_news_to_channel():
             print(f"Skipping already published article: {link}")
             continue
 
-        # Scrape the article details
+        # Add the non-redundant link to the published articles file immediately
+        save_published_article(link)
+        print(f"Added link to published articles: {link}")
+
+        # Attempt to scrape the article
         article = scrape_article(link)
         if not article:
             print(f"Failed to scrape article: {link}")
             continue
 
-        # Generate the Persian title and summary
+        # Attempt to generate the Persian title and summary
         persian_title, summary = generate_summary(article['headline'], article['content'])
         if not persian_title or not summary:
             print(f"Failed to generate summary for: {link}")
@@ -218,9 +222,7 @@ def post_news_to_channel():
         else:
             send_message(caption)  # Fallback to text-only if no image is found
 
-        # Save the article link to avoid reposting
-        save_published_article(link)
-
+        # Wait before processing the next article
         time.sleep(2)
 
 
