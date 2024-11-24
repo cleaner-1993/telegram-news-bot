@@ -6,9 +6,9 @@ import time
 from bs4 import BeautifulSoup
 
 # Embed the API keys directly here (replace with your keys)
-API_KEY = "API_KEY"
-BOT_TOKEN = "BOT_TOKEN"
-CHANNEL_ID = "CHANNEL_ID"
+API_KEY = os.getenv("API_KEY")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHANNEL_ID = os.getenv("CHANNEL_ID")
 
 # CBC Canada News RSS Feed URL
 RSS_FEED_URL = 'https://rss.cbc.ca/lineup/canada.xml'
@@ -169,6 +169,10 @@ def format_bullet_points(summary):
             formatted_summary += f"{line.strip()}\n"  # Handle non-bullet lines
     return formatted_summary.strip()  # Remove any trailing spaces or newlines
 
+def save_published_article(link):
+    """Save a new article link to the file."""
+    with open(PUBLISHED_FILE, 'a', encoding='utf-8') as file:
+        file.write(link + '\n')
 
 def post_news_to_channel():
     """Fetch, scrape, summarize, and post news articles with images to the Telegram channel."""
@@ -177,10 +181,15 @@ def post_news_to_channel():
         print("No entries found in the RSS feed.")
         return
 
+    published_articles = read_published_articles()
+
     for entry in entries:
         link = entry.link
-        description = entry.description
-        image_url = extract_image_from_description(description)
+
+        # Skip if the article has already been posted
+        if link in published_articles:
+            print(f"Skipping already published article: {link}")
+            continue
 
         # Scrape the article details
         article = scrape_article(link)
@@ -204,7 +213,7 @@ def post_news_to_channel():
         caption = f"<b>{html.escape(persian_title_with_dot)}</b>\n\n{html.escape(formatted_summary)}\n\n<a href='{html.escape(link)}'>بیشتر بخوانید</a>"
 
         # Send the message to the Telegram channel
-        if image_url:
+        if image_url := extract_image_from_description(entry.description):
             send_message_with_image(image_url, caption)
         else:
             send_message(caption)  # Fallback to text-only if no image is found
