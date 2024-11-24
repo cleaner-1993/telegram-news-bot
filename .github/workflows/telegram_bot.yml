@@ -39,9 +39,9 @@ jobs:
 
     # Step 5: Commit and push changes
     - name: Commit and push changes
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add published_articles.txt
-        git commit -m "Update published articles"
-        git push
+    run: |
+      git config --global user.name "github-actions[bot]"
+      git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      git add published_articles.txt
+      git commit --allow-empty -m "Update published articles"
+      git push
