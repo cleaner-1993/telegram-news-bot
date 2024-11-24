@@ -92,18 +92,15 @@ def generate_summary(headline, content):
     }
 
     try:
-        # Debugging logs
-        print("DEBUG: Sending request to Gemini API...")
-        print(f"URL: {URL}")
-        print(f"Headers: {headers}")
-        print(f"Payload: {data}")
+        # Consolidated debug log
+        print(f"DEBUG: Sending request to Gemini API with URL: {URL} and payload: {data}")
 
         # Send request
         response = requests.post(URL, headers=headers, json=data)
-        print("DEBUG: Received response from Gemini API...")
-        print(f"Response Status Code: {response.status_code}")
-        print(f"Response Content: {response.text}")
         response.raise_for_status()
+
+        # Consolidated response log
+        print(f"DEBUG: Received response: {response.status_code}, Content: {response.text}")
 
         # Parse the response
         result = response.json()
@@ -126,9 +123,8 @@ def generate_summary(headline, content):
         return cleaned_title, cleaned_summary
     except requests.exceptions.RequestException as e:
         print(f"Error generating summary: {e}")
-        if 'response' in locals():
-            print(f"DEBUG: Response content: {response.text}")
         return None, None
+
 
 def extract_image_from_description(description):
     """Extract the image URL from the RSS description tag."""
@@ -146,20 +142,7 @@ def extract_image_from_description(description):
 
 
 
-def send_message_with_image(photo_url, caption):
-    """Send the summary with an image to the Telegram channel."""
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    payload = {
-        'chat_id': CHANNEL_ID,
-        'photo': photo_url,
-        'caption': caption,
-        'parse_mode': 'HTML'
-    }
-    try:
-        response = requests.post(url, data=payload)
-        response.raise_for_status()
-    except Exception as e:
-        print(f"Error sending message with image: {e}")
+
 
 def format_bullet_points(summary):
     """Format the bullet points to add spacing between them."""
@@ -174,8 +157,11 @@ def format_bullet_points(summary):
 
 def save_published_article(link):
     """Save a new article link to the file."""
-    with open(PUBLISHED_FILE, 'a', encoding='utf-8') as file:
-        file.write(link + '\n')
+    published_articles = read_published_articles()
+    if link not in published_articles:  # Avoid writing duplicates
+        with open(PUBLISHED_FILE, 'a', encoding='utf-8') as file:
+            file.write(link + '\n')
+
 
 def post_news_to_channel():
     """Fetch, scrape, summarize, and post news articles with images to the Telegram channel."""
@@ -185,6 +171,7 @@ def post_news_to_channel():
         return
 
     published_articles = read_published_articles()
+    new_articles_found = False  # Flag to track new articles
 
     for entry in entries:
         link = entry.link
@@ -193,6 +180,9 @@ def post_news_to_channel():
         if link in published_articles:
             print(f"Skipping already published article: {link}")
             continue
+
+        # Mark that we found a new article
+        new_articles_found = True
 
         # Scrape the article details
         article = scrape_article(link)
@@ -215,8 +205,12 @@ def post_news_to_channel():
         # Prepare the caption
         caption = f"<b>{html.escape(persian_title_with_dot)}</b>\n\n{html.escape(formatted_summary)}\n\n<a href='{html.escape(link)}'>بیشتر بخوانید</a>"
 
+        # Safely handle entry.description
+        description = getattr(entry, "description", None)
+        image_url = extract_image_from_description(description)
+
         # Send the message to the Telegram channel
-        if image_url := extract_image_from_description(entry.description):
+        if image_url:
             send_message_with_image(image_url, caption)
         else:
             send_message(caption)  # Fallback to text-only if no image is found
@@ -225,6 +219,12 @@ def post_news_to_channel():
         save_published_article(link)
 
         time.sleep(2)
+
+    # Exit gracefully if no new articles were found
+    if not new_articles_found:
+        print("No new articles to post. Exiting.")
+
+
 
 if __name__ == "__main__":
     post_news_to_channel()
