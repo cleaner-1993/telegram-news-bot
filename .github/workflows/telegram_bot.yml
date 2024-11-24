@@ -35,13 +35,15 @@ jobs:
         API_KEY: ${{ secrets.API_KEY }}
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
-      run: python news_bot.py
+      run: |
+        python news_bot.py
 
     # Step 5: Commit and push changes
     - name: Commit and push changes
-    run: |
-      git config --global user.name "github-actions[bot]"
-      git config --global user.email "github-actions[bot]@users.noreply.github.com"
-      git add published_articles.txt
-      git commit --allow-empty -m "Update published articles"
-      git push
+      if: success()  # Ensure this step only runs if the script succeeds
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add published_articles.txt
+        git commit --allow-empty -m "Update published articles"
+        git push
