@@ -235,11 +235,13 @@ def post_news_to_channel():
         persian_title, summary = generate_summary(article['headline'], article['content'])
         if not persian_title or not summary:
             continue
+
         # Prepare the message
         escaped_title = html.escape(persian_title)
         escaped_summary = html.escape(summary)
-        read_more_link = f"\n\n<b>بیشتر بخوانید:</b> {link}"
+        read_more_link = f"\n\n<a href='{link}'>بیشتر بخوانید</a>"
         formatted_summary = f"<b>🔴 {escaped_title}</b>\n\n{escaped_summary}{read_more_link}"
+
         # Determine the maximum length based on whether an image is present
         description = getattr(entry, "description", None)
         image_url = extract_image_from_description(description)
@@ -247,6 +249,7 @@ def post_news_to_channel():
             max_length = 1024
         else:
             max_length = 4096
+
         # Truncate if necessary
         if len(formatted_summary) > max_length:
             title_length = len(f"<b>🔴 {escaped_title}</b>\n\n")
@@ -254,6 +257,7 @@ def post_news_to_channel():
             available_summary_length = max_length - title_length - link_length
             truncated_summary = truncate_text(escaped_summary, available_summary_length)
             formatted_summary = f"<b>🔴 {escaped_title}</b>\n\n{truncated_summary}{read_more_link}"
+
         success = False
         if image_url:
             image_path = download_image(image_url)
@@ -268,6 +272,7 @@ def post_news_to_channel():
         else:
             print("No image available for this article.")
             success = send_message_without_image(formatted_summary)
+
         if success:
             save_published_article(link)
         else:
