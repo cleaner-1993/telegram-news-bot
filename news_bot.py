@@ -84,9 +84,21 @@ def scrape_article(url):
 def generate_summary(headline, content):
     """Send the title and content to Gemini API for summarization."""
     headers = {"Content-Type": "application/json"}
+    # Adjusted prompt for click-baity title and hashtags
     data = {
         "contents": [
-            {"parts": [{"text": f"Summarize the following story in Persian, and provide a clean title without adding terms like 'عنوان' or '##':\n\nTitle: {headline}\n\n{content}"}]}
+            {
+                "parts": [
+                    {
+                        "text": (
+                            "Summarize the following story in Persian while keeping English names, terms, and entities unchanged. "
+                            "Make the title click-baity to attract the reader's attention while staying relevant to the content. "
+                            "At the end of the summary, add three hashtags that are relevant to the story in both English and Persian, separated by commas.\n\n"
+                            f"Title: {headline}\n\n{content}"
+                        )
+                    }
+                ]
+            }
         ]
     }
     try:
@@ -95,17 +107,24 @@ def generate_summary(headline, content):
         result = response.json()
         # Adjust the parsing based on the actual response format
         persian_summary = result["candidates"][0]["content"]["parts"][0]["text"]
-        # Split the response into title and summary
-        lines = persian_summary.strip().split('\n', 1)
-        if len(lines) == 2:
+        # Split the response into title, summary, and hashtags
+        lines = persian_summary.strip().split('\n')
+        if len(lines) >= 3:
+            cleaned_title = lines[0].strip()
+            cleaned_summary = "\n".join(lines[1:-1]).strip()
+            hashtags = lines[-1].strip()
+        elif len(lines) == 2:
             cleaned_title, cleaned_summary = lines
+            hashtags = ""
         else:
             cleaned_title = lines[0]
             cleaned_summary = ''
-        return cleaned_title.strip(), cleaned_summary.strip()
+            hashtags = ''
+        return cleaned_title.strip(), cleaned_summary.strip(), hashtags.strip()
     except requests.exceptions.RequestException as e:
         print(f"Error generating summary: {e}")
-        return None, None
+        return None, None, None
+
 
 def extract_image_from_description(description):
     """Extract the image URL from the RSS description tag."""
@@ -232,7 +251,7 @@ def post_news_to_channel():
         article = scrape_article(link)
         if not article:
             continue
-        persian_title, summary = generate_summary(article['headline'], article['content'])
+        persian_title, summary, hashtags = generate_summary(article['headline'], article['content'])
         if not persian_title or not summary:
             continue
 
@@ -240,7 +259,7 @@ def post_news_to_channel():
         escaped_title = html.escape(persian_title)
         escaped_summary = html.escape(summary)
         read_more_link = f"\n\n<a href='{link}'>بیشتر بخوانید</a>"
-        formatted_summary = f"<b>🔴 {escaped_title}</b>\n\n{escaped_summary}{read_more_link}"
+        formatted_summary = f"<b>🔴 {escaped_title}</b>\n\n{escaped_summary}{read_more_link}\n\n{hashtags}"
 
         # Determine the maximum length based on whether an image is present
         description = getattr(entry, "description", None)
@@ -254,9 +273,10 @@ def post_news_to_channel():
         if len(formatted_summary) > max_length:
             title_length = len(f"<b>🔴 {escaped_title}</b>\n\n")
             link_length = len(read_more_link)
-            available_summary_length = max_length - title_length - link_length
+            hashtag_length = len(hashtags) + 2  # Including the new line
+            available_summary_length = max_length - title_length - link_length - hashtag_length
             truncated_summary = truncate_text(escaped_summary, available_summary_length)
-            formatted_summary = f"<b>🔴 {escaped_title}</b>\n\n{truncated_summary}{read_more_link}"
+            formatted_summary = f"<b>🔴 {escaped_title}</b>\n\n{truncated_summary}{read_more_link}\n\n{hashtags}"
 
         success = False
         if image_url:
@@ -279,6 +299,7 @@ def post_news_to_channel():
             print("Failed to send message, not saving link.")
         time.sleep(2)
     clear_image_folder()
+
 
 if __name__ == "__main__":
     post_news_to_channel()
