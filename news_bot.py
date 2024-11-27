@@ -11,8 +11,19 @@ API_KEY = os.getenv("API_KEY")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 
-# CBC Canada News RSS Feed URL
-RSS_FEED_URL = 'https://rss.cbc.ca/lineup/canada.xml'
+# Dictionary mapping feed URLs to their corresponding topics
+RSS_FEEDS = {
+    'https://www.cbc.ca/webfeed/rss/rss-topstories': 'topstories',
+    'https://www.cbc.ca/webfeed/rss/rss-world': 'world',
+    'https://www.cbc.ca/webfeed/rss/rss-canada': 'canada',
+    'https://www.cbc.ca/webfeed/rss/rss-politics': 'politics',
+    'https://www.cbc.ca/webfeed/rss/rss-business': 'business',
+    'https://www.cbc.ca/webfeed/rss/rss-health': 'health',
+    'https://www.cbc.ca/webfeed/rss/rss-arts': 'arts',
+    'https://www.cbc.ca/webfeed/rss/rss-technology': 'technology',
+    'https://www.cbc.ca/webfeed/rss/rss-Indigenous': 'indigenous',
+    'https://www.cbc.ca/webfeed/rss/rss-sports': 'sports',
+}
 
 # Gemini API endpoint
 URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={API_KEY}"
@@ -23,16 +34,16 @@ PUBLISHED_FILE = "published_articles.txt"
 # Folder for saving images
 IMAGE_FOLDER = "saved_images"
 
-def fetch_rss_feed():
-    """Fetch the RSS feed and extract all entries."""
+def fetch_rss_feed(feed_url):
+    """Fetch the RSS feed from the given URL and extract all entries."""
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        response = requests.get(RSS_FEED_URL, headers=headers, timeout=10)
+        response = requests.get(feed_url, headers=headers, timeout=10)
         response.raise_for_status()
         feed = feedparser.parse(response.text)
         return feed.entries  # Return all entries
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching the RSS feed: {e}")
+        print(f"Error fetching the RSS feed {feed_url}: {e}")
         return []
 
 def read_published_articles():
@@ -105,9 +116,8 @@ def generate_summary(headline, content):
         response = requests.post(URL, headers=headers, json=data)
         response.raise_for_status()
         result = response.json()
-        # Adjust the parsing based on the actual response format
+        # Parse the response to extract title, summary, and hashtags
         persian_summary = result["candidates"][0]["content"]["parts"][0]["text"]
-        # Split the response into title, summary, and hashtags
         lines = persian_summary.strip().split('\n')
         if len(lines) >= 3:
             cleaned_title = lines[0].strip()
@@ -124,7 +134,6 @@ def generate_summary(headline, content):
     except requests.exceptions.RequestException as e:
         print(f"Error generating summary: {e}")
         return None, None, None
-
 
 def extract_image_from_description(description):
     """Extract the image URL from the RSS description tag."""
@@ -172,7 +181,6 @@ def send_message_with_local_image(image_path, caption):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     response = None
     try:
-        # Do not escape caption here; it's already handled
         with open(image_path, 'rb') as photo:
             payload = {
                 'chat_id': CHANNEL_ID,
@@ -198,7 +206,6 @@ def send_message_without_image(caption):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     response = None
     try:
-        # Do not escape caption here; it's already handled
         payload = {
             'chat_id': CHANNEL_ID,
             'text': caption,
@@ -238,9 +245,9 @@ def truncate_text(text, max_length):
     else:
         return text
 
-def post_news_to_channel():
-    """Fetch, scrape, summarize, and post news articles with images."""
-    entries = fetch_rss_feed()
+def process_feed(feed_url, topic):
+    """Process a single RSS feed."""
+    entries = fetch_rss_feed(feed_url)
     if not entries:
         return
     published_articles = read_published_articles()
@@ -251,16 +258,21 @@ def post_news_to_channel():
         article = scrape_article(link)
         if not article:
             continue
+        # Generate summary, get title, summary, and hashtags
         persian_title, summary, hashtags = generate_summary(article['headline'], article['content'])
         if not persian_title or not summary:
             continue
-
+        # Append topic-specific hashtag
+        topic_hashtag = f"#{topic}"
+        if hashtags:
+            hashtags = f"{hashtags}, {topic_hashtag}"
+        else:
+            hashtags = topic_hashtag
         # Prepare the message
         escaped_title = html.escape(persian_title)
         escaped_summary = html.escape(summary)
         read_more_link = f"\n\n<a href='{link}'>بیشتر بخوانید</a>"
         formatted_summary = f"<b>🔴 {escaped_title}</b>\n\n{escaped_summary}{read_more_link}\n\n{hashtags}"
-
         # Determine the maximum length based on whether an image is present
         description = getattr(entry, "description", None)
         image_url = extract_image_from_description(description)
@@ -268,7 +280,6 @@ def post_news_to_channel():
             max_length = 1024
         else:
             max_length = 4096
-
         # Truncate if necessary
         if len(formatted_summary) > max_length:
             title_length = len(f"<b>🔴 {escaped_title}</b>\n\n")
@@ -277,7 +288,6 @@ def post_news_to_channel():
             available_summary_length = max_length - title_length - link_length - hashtag_length
             truncated_summary = truncate_text(escaped_summary, available_summary_length)
             formatted_summary = f"<b>🔴 {escaped_title}</b>\n\n{truncated_summary}{read_more_link}\n\n{hashtags}"
-
         success = False
         if image_url:
             image_path = download_image(image_url)
@@ -292,7 +302,6 @@ def post_news_to_channel():
         else:
             print("No image available for this article.")
             success = send_message_without_image(formatted_summary)
-
         if success:
             save_published_article(link)
         else:
@@ -300,6 +309,14 @@ def post_news_to_channel():
         time.sleep(2)
     clear_image_folder()
 
+def post_news_to_channel():
+    """Fetch, scrape, summarize, and post news articles from multiple RSS feeds."""
+    for feed_url, topic in RSS_FEEDS.items():
+        try:
+            print(f"Processing feed: {feed_url} with topic: {topic}")
+            process_feed(feed_url, topic)
+        except Exception as e:
+            print(f"Error processing feed {feed_url}: {e}")
 
 if __name__ == "__main__":
     post_news_to_channel()
